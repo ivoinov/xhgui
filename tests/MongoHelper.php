@@ -2,14 +2,14 @@
 
 namespace XHGui\Test;
 
-use MongoDB;
+use MongoDB\Database;
 
 class MongoHelper
 {
     /** @var array */
     private $indexes = [];
 
-    public function __construct(private MongoDB $mongodb)
+    public function __construct(private Database $mongodb)
     {
     }
 
@@ -21,7 +21,8 @@ class MongoHelper
 
     public function createCollection(string $collectionName, array $indexes): void
     {
-        $collection = $this->mongodb->createCollection($collectionName);
+        $this->mongodb->createCollection($collectionName);
+        $collection = $this->mongodb->selectCollection($collectionName);
 
         foreach ($indexes as [$keys, $options]) {
             $collection->createIndex($keys, $options);
@@ -34,7 +35,7 @@ class MongoHelper
         $collection = $this->mongodb->selectCollection($collectionName);
         $expectedIndexes = $this->indexes[$collectionName];
 
-        foreach ($collection->getIndexInfo() as $offset => $index) {
+        foreach ($collection->listIndexes() as $offset => $index) {
             yield [
                 $index['key'],
                 $index['name'],

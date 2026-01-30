@@ -4,7 +4,7 @@ namespace XHGui\Test\Db;
 
 use DateInterval;
 use DateTime;
-use MongoDate;
+use MongoDB\BSON\UTCDateTime;
 use XHGui\Db\Mapper;
 use XHGui\Test\TestCase;
 
@@ -66,7 +66,7 @@ class MapperTest extends TestCase
         $result = $this->mapper->convert($opts);
         $expected = [
             'meta.request_ts' => [
-                '$gte' => new MongoDate($date->getTimestamp()),
+                '$gte' => new UTCDateTime($date->getTimestamp() * 1000),
             ],
             'meta.simple_url' => '/tasks',
         ];
@@ -88,7 +88,7 @@ class MapperTest extends TestCase
         $result = $this->mapper->convert($opts);
         $expected = [
             'meta.request_ts' => [
-                '$gte' => new MongoDate($date->getTimestamp()),
+                '$gte' => new UTCDateTime($date->getTimestamp() * 1000),
             ],
             'meta.simple_url' => '/tasks',
         ];

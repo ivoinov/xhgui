@@ -135,7 +135,7 @@ trait LazyContainerProperties
 
     protected function getMongoDb()
     {
-        return $this->di[MongoDB::class];
+        return $this->di[\MongoDB\Database::class];
     }
 
     protected function getRequest(): RequestProxy
