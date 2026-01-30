@@ -50,7 +50,7 @@ interface SearcherInterface
      * @param string $url the url to load profiles for
      * @param array $options pagination options to use
      * @param array $conditions the search options
-     * @return MongoCursor
+     * @return array
      */
     public function getForUrl($url, $options, $conditions = []);
 

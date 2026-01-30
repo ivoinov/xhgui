@@ -2,13 +2,14 @@
 
 namespace XHGui\Saver;
 
-use MongoCollection;
-use MongoDate;
-use MongoId;
+use MongoDB\BSON\ObjectId;
+use MongoDB\BSON\UTCDateTime;
+use MongoDB\Collection;
+use MongoDB\Driver\WriteConcern;
 
 class MongoSaver implements SaverInterface
 {
-    public function __construct(private MongoCollection $_collection)
+    public function __construct(private Collection $_collection)
     {
     }
 
@@ -25,18 +26,20 @@ class MongoSaver implements SaverInterface
             'env' => $data['meta']['env'],
             'SERVER' => $data['meta']['SERVER'],
             'simple_url' => $data['meta']['simple_url'],
-            'request_ts' => new MongoDate($sec),
-            'request_ts_micro' => new MongoDate($sec, $usec),
+            'request_ts' => new UTCDateTime($sec * 1000),
+            'request_ts_micro' => new UTCDateTime($sec * 1000 + intdiv($usec, 1000)),
             'request_date' => date('Y-m-d', $sec),
         ];
 
+        $objectId = $id !== null ? new ObjectId($id) : new ObjectId();
+
         $a = [
-            '_id' => new MongoId($id),
+            '_id' => $objectId,
             'meta' => $meta,
             'profile' => $this->encodeProfile($data['profile']),
         ];
 
-        $this->_collection->insert($a, ['w' => 0]);
+        $this->_collection->insertOne($a, ['writeConcern' => new WriteConcern(0)]);
 
         return (string)$a['_id'];
     }

@@ -4,7 +4,7 @@ namespace XHGui\Db;
 
 use DateInterval;
 use DateTime;
-use MongoDate;
+use MongoDB\BSON\UTCDateTime;
 use XHGui\Searcher\SearcherInterface;
 
 class Mapper
@@ -70,10 +70,10 @@ class Mapper
             $date = new DateTime();
             try {
                 $date->sub(new DateInterval($search['limit']));
-                $conditions['meta.request_ts']['$gte'] = new MongoDate($date->getTimestamp());
+                $conditions['meta.request_ts']['$gte'] = new UTCDateTime($date->getTimestamp() * 1000);
             } catch (\Exception) {
                 // Match a day in the future so we match nothing, as it's likely an invalid format
-                $conditions['meta.request_ts']['$gte'] = new MongoDate(time() + 86400);
+                $conditions['meta.request_ts']['$gte'] = new UTCDateTime((time() + 86400) * 1000);
             }
         }
 

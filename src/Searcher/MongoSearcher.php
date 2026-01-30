@@ -3,10 +3,10 @@
 namespace XHGui\Searcher;
 
 use Exception;
-use MongoCursor;
-use MongoDate;
-use MongoDb;
-use MongoId;
+use MongoDB\BSON\ObjectId;
+use MongoDB\BSON\UTCDateTime;
+use MongoDB\Database;
+use MongoDB\Driver\WriteConcern;
 use XHGui\Db\Mapper;
 use XHGui\Options\SearchOptions;
 use XHGui\Profile;
@@ -22,7 +22,7 @@ class MongoSearcher implements SearcherInterface
 
     protected Mapper $_mapper;
 
-    public function __construct(MongoDb $db)
+    public function __construct(Database $db)
     {
         $this->_collection = $db->results;
         $this->_watches = $db->watches;
@@ -34,10 +34,10 @@ class MongoSearcher implements SearcherInterface
      */
     public function latest()
     {
-        $cursor = $this->_collection->find()
-            ->sort(['meta.request_date' => -1])
-            ->limit(1);
-        $result = $cursor->getNext();
+        $result = $this->_collection->findOne(
+            [],
+            ['sort' => ['meta.request_date' => -1]]
+        );
 
         return $this->_wrap($result);
     }
@@ -47,8 +47,11 @@ class MongoSearcher implements SearcherInterface
      */
     public function query($conditions, $limit, $fields = [])
     {
-        $result = $this->_collection->find($conditions, $fields)
-            ->limit($limit);
+        $options = ['limit' => $limit];
+        if (!empty($fields)) {
+            $options['projection'] = $fields;
+        }
+        $result = $this->_collection->find($conditions, $options);
 
         return iterator_to_array($result);
     }
@@ -59,7 +62,7 @@ class MongoSearcher implements SearcherInterface
     public function get($id)
     {
         return $this->_wrap($this->_collection->findOne([
-            '_id' => new MongoId($id),
+            '_id' => new ObjectId($id),
         ]));
     }
 
@@ -131,12 +134,13 @@ class MongoSearcher implements SearcherInterface
             ['$sort' => ['_id' => 1]],
         ];
 
-        $results = $this->_collection->aggregate(
+        $cursor = $this->_collection->aggregate(
             $pipeline,
             ['cursor' => ['batchSize' => 0]]
         );
 
-        if (empty($results['result'])) {
+        $results = iterator_to_array($cursor);
+        if (empty($results)) {
             return [];
         }
         $keys = [
@@ -145,8 +149,10 @@ class MongoSearcher implements SearcherInterface
             'mu_times' => 'mu',
             'pmu_times' => 'pmu',
         ];
-        foreach ($results['result'] as &$result) {
-            $result['date'] = ($result['_id'] instanceof MongoDate) ? date('Y-m-d H:i:s', $result['_id']->sec) : $result['_id'];
+        foreach ($results as &$result) {
+            $result['date'] = ($result['_id'] instanceof UTCDateTime)
+                ? $result['_id']->toDateTime()->format('Y-m-d H:i:s')
+                : $result['_id'];
             unset($result['_id']);
             $index = max(round($result['raw_index']) - 1, 0);
             foreach ($keys as $key => $out) {
@@ -156,7 +162,7 @@ class MongoSearcher implements SearcherInterface
             }
         }
 
-        return $results['result'];
+        return $results;
     }
 
     /**
@@ -171,37 +177,39 @@ class MongoSearcher implements SearcherInterface
         if (isset($search['date_end'])) {
             $match['meta.request_date']['$lte'] = (string)$search['date_end'];
         }
-        $results = $this->_collection->aggregate(
+        $cursor = $this->_collection->aggregate(
             [
-            ['$match' => $match],
-            [
-                '$project' => [
-                    'date' => '$meta.request_date',
-                    'profile.main()' => 1,
+                ['$match' => $match],
+                [
+                    '$project' => [
+                        'date' => '$meta.request_date',
+                        'profile.main()' => 1,
+                    ],
                 ],
-            ],
-            [
-                '$group' => [
-                    '_id' => '$date',
-                    'avg_wt' => ['$avg' => '$profile.main().wt'],
-                    'avg_cpu' => ['$avg' => '$profile.main().cpu'],
-                    'avg_mu' => ['$avg' => '$profile.main().mu'],
-                    'avg_pmu' => ['$avg' => '$profile.main().pmu'],
+                [
+                    '$group' => [
+                        '_id' => '$date',
+                        'avg_wt' => ['$avg' => '$profile.main().wt'],
+                        'avg_cpu' => ['$avg' => '$profile.main().cpu'],
+                        'avg_mu' => ['$avg' => '$profile.main().mu'],
+                        'avg_pmu' => ['$avg' => '$profile.main().pmu'],
+                    ],
                 ],
+                ['$sort' => ['_id' => 1]],
             ],
-            ['$sort' => ['_id' => 1]],
-        ],
             ['cursor' => ['batchSize' => 0]]
         );
-        if (empty($results['result'])) {
+
+        $results = iterator_to_array($cursor);
+        if (empty($results)) {
             return [];
         }
-        foreach ($results['result'] as $i => $result) {
-            $results['result'][$i]['date'] = $result['_id'];
-            unset($results['result'][$i]['_id']);
+        foreach ($results as $i => $result) {
+            $results[$i]['date'] = $result['_id'];
+            unset($results[$i]['_id']);
         }
 
-        return $results['result'];
+        return $results;
     }
 
     /**
@@ -217,12 +225,12 @@ class MongoSearcher implements SearcherInterface
      */
     public function delete($id): void
     {
-        $this->_collection->remove(['_id' => new MongoId($id)], []);
+        $this->_collection->deleteOne(['_id' => new ObjectId($id)]);
     }
 
     public function truncate()
     {
-        $this->_collection->remove();
+        $this->_collection->deleteMany([]);
 
         return $this;
     }
@@ -237,28 +245,28 @@ class MongoSearcher implements SearcherInterface
         }
 
         if (!empty($data['removed']) && isset($data['_id'])) {
-            $this->_watches->remove(
-                ['_id' => new MongoId($data['_id'])],
-                ['w' => 1]
+            $this->_watches->deleteOne(
+                ['_id' => new ObjectId($data['_id'])],
+                ['writeConcern' => new WriteConcern(1)]
             );
 
             return true;
         }
 
         if (empty($data['_id'])) {
-            $this->_watches->insert(
+            $this->_watches->insertOne(
                 $data,
-                ['w' => 1]
+                ['writeConcern' => new WriteConcern(1)]
             );
 
             return true;
         }
 
-        $data['_id'] = new MongoId($data['_id']);
-        $this->_watches->update(
+        $data['_id'] = new ObjectId($data['_id']);
+        $this->_watches->replaceOne(
             ['_id' => $data['_id']],
             $data,
-            ['w' => 1]
+            ['writeConcern' => new WriteConcern(1)]
         );
 
         return true;
@@ -276,7 +284,7 @@ class MongoSearcher implements SearcherInterface
 
     public function truncateWatches()
     {
-        $this->_watches->remove();
+        $this->_watches->deleteMany([]);
 
         return $this;
     }
@@ -288,10 +296,7 @@ class MongoSearcher implements SearcherInterface
     {
         $opts = $this->_mapper->convert($options);
 
-        $totalRows = $this->_collection->find(
-            $opts['conditions'],
-            ['_id' => 1]
-        )->count();
+        $totalRows = $this->_collection->countDocuments($opts['conditions']);
 
         $totalPages = max(ceil($totalRows / $opts['perPage']), 1);
         $page = 1;
@@ -308,17 +313,17 @@ class MongoSearcher implements SearcherInterface
             }
         }
 
-        if ($projection === false) {
-            $cursor = $this->_collection->find($opts['conditions'])
-                ->sort($opts['sort'])
-                ->skip((int)($page - 1) * $opts['perPage'])
-                ->limit($opts['perPage']);
-        } else {
-            $cursor = $this->_collection->find($opts['conditions'], $projection)
-                ->sort($opts['sort'])
-                ->skip((int)($page - 1) * $opts['perPage'])
-                ->limit($opts['perPage']);
+        $findOptions = [
+            'sort' => $opts['sort'],
+            'skip' => (int)($page - 1) * $opts['perPage'],
+            'limit' => $opts['perPage'],
+        ];
+
+        if ($projection !== false) {
+            $findOptions['projection'] = $projection;
         }
+
+        $cursor = $this->_collection->find($opts['conditions'], $findOptions);
 
         return [
             'results' => $this->_wrap($cursor),
@@ -331,9 +336,9 @@ class MongoSearcher implements SearcherInterface
     }
 
     /**
-     * Converts arrays + MongoCursors into Profile instances.
+     * Converts arrays + Cursors into Profile instances.
      *
-     * @param array|MongoCursor $data the data to transform
+     * @param array|iterable $data the data to transform
      * @return Profile|Profile[] the transformed/wrapped results
      */
     private function _wrap($data)

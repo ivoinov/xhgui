@@ -2,9 +2,9 @@
 
 namespace XHGui\ServiceProvider;
 
-use MongoClient;
-use MongoCollection;
-use MongoDB;
+use MongoDB\Client;
+use MongoDB\Collection;
+use MongoDB\Database;
 use MongoDB\Driver\Manager;
 use Pimple\Container;
 use Pimple\ServiceProviderInterface;
@@ -24,17 +24,17 @@ class MongoStorageProvider implements ServiceProviderInterface
             return $config['db.db'] ?? $mongodb['database'] ?? 'xhgui';
         };
 
-        $app[MongoDB::class] = static function ($app) {
+        $app[Database::class] = static function ($app) {
             $database = $app['mongodb.database'];
-            /** @var MongoClient $client */
-            $client = $app[MongoClient::class];
-            $mongoDB = $client->selectDb($database);
+            /** @var Client $client */
+            $client = $app[Client::class];
+            $mongoDB = $client->selectDatabase($database);
             $mongoDB->results->findOne();
 
             return $mongoDB;
         };
 
-        $app[MongoClient::class] = static function ($app) {
+        $app[Client::class] = static function ($app) {
             if (!class_exists(Manager::class)) {
                 throw new RuntimeException('Required extension ext-mongodb missing');
             }
@@ -45,15 +45,18 @@ class MongoStorageProvider implements ServiceProviderInterface
             $driverOptions = $config['db.driverOptions'] ?? $mongodb['driverOptions'] ?? [];
             $server = $config['db.host'] ?? sprintf('mongodb://%s:%s', $mongodb['hostname'], $mongodb['port']);
 
-            return new MongoClient($server, $options, $driverOptions);
+            // Ensure all results are returned as arrays
+            $driverOptions['typeMap'] = ['root' => 'array', 'document' => 'array', 'array' => 'array'];
+
+            return new Client($server, $options, $driverOptions);
         };
 
-        $app['searcher.mongodb'] = static fn($app) => new MongoSearcher($app[MongoDB::class]);
+        $app['searcher.mongodb'] = static fn($app) => new MongoSearcher($app[Database::class]);
 
         $app['saver.mongodb'] = static function ($app) {
-            /** @var MongoDB $mongoDB */
-            $mongoDB = $app[MongoDB::class];
-            /** @var MongoCollection $collection */
+            /** @var Database $mongoDB */
+            $mongoDB = $app[Database::class];
+            /** @var Collection $collection */
             $collection = $mongoDB->results;
 
             return new MongoSaver($collection);
