@@ -1,7 +1,26 @@
 {
-    "name": "perftools/xhgui",
+    "name": "ivoinov/xhgui",
     "description": "A web based interface for viewing profile data collected by XHProf",
     "license": "MIT",
+    "type": "project",
+    "keywords": [
+        "xhprof",
+        "profiling",
+        "performance",
+        "mongodb",
+        "xhgui"
+    ],
+    "homepage": "https://github.com/ivoinov/xhgui",
+    "authors": [
+        {
+            "name": "ivoinov",
+            "homepage": "https://github.com/ivoinov"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/ivoinov/xhgui/issues",
+        "source": "https://github.com/ivoinov/xhgui"
+    },
     "autoload": {
         "psr-4": {
             "XHGui\\": "src/"
